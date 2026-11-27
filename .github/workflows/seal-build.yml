@@ -1,0 +1,68 @@
+name: seal-build
+
+# log4j 1.2.17 has no GitHub Actions CI upstream. This workflow runs the
+# project's own Maven build (pom.xml), whose test phase drives the Ant
+# regression suite in tests/build.xml (target runAll) via maven-antrun-plugin,
+# then packages target/log4j-1.2.17.jar.
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "Ant target of tests/build.xml to run instead of runAll (e.g. Core, ErrorHandler); empty runs the full suite"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-jdk7-${{ runner.os }}-${{ hashFiles('pom.xml') }}
+          restore-keys: |
+            m2-jdk7-${{ runner.os }}-
+
+      - name: Build and test (Maven on JDK 7, tests via tests/build.xml)
+        env:
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          set -o pipefail
+          mkdir -p "$HOME/.m2/repository"
+          docker run --rm \
+            -v "$PWD":/workdir -w /workdir \
+            -v "$HOME/.m2":/root/.m2 \
+            -e MAVEN_OPTS="-Dhttps.protocols=TLSv1.2" \
+            maven:3-jdk-7 \
+            mvn -B clean verify -Dmaven.site.skip=true \
+              "-Dlog4j.tests.target=${TEST_FILTER:-runAll}" 2>&1 | tee build.log
+
+      - name: Test summary
+        if: always() && hashFiles('build.log') != ''
+        run: |
+          awk '
+            /\[junit\] Running /   { suite=$NF; pending=1; next }
+            /\[junit\] Tests run:/ && pending {
+              line=$0; sub(/.*Tests run: */, "", line)
+              split(line, f, /, */)
+              run=f[1]; sub(/Failures: */, "", f[2]); sub(/Errors: */, "", f[3])
+              printf "%-60s run=%d failures=%d errors=%d\n", suite, run, f[2], f[3]
+              total+=run; fail+=f[2]; err+=f[3]; suites++; pending=0
+            }
+            END {
+              printf "TEST SUMMARY: %d suites, %d tests run, %d passed, %d failures, %d errors, 0 skipped (JUnit 3.8 has no skip mechanism)\n", suites, total, total-fail-err, fail, err
+            }' build.log
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: log4j-jar
+          path: target/log4j-1.2.17.jar
+          if-no-files-found: error
