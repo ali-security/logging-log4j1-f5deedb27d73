@@ -115,6 +115,9 @@
     <condition property="is-windows" value="true">
         <os family="windows"/>
     </condition>
+    <condition property="is-linux" value="true">
+        <os name="Linux"/>
+    </condition>
   </target>
 
   <!-- Clean the parent project                                          -->
@@ -178,7 +181,8 @@
                                      LevelMatchFilter, PatternParser, 
                                      ErrorHandler,Rewrite, JNDIUtil, JMSAppender,
                                      LoggingReceiver, JDBCAppender,
-                                     HardenedObjectInputStream, SocketNode"/>
+                                     HardenedObjectInputStream, SocketNode,
+                                     NTEventLogAppenderDllPreloading"/>
 
   <!-- ================================================================= -->
   <!-- Longer unit tests                                                 -->
@@ -510,6 +514,20 @@
       <classpath refid="tests.classpath"/>
       <formatter type="plain" usefile="false"/>
       <test name="org.apache.log4j.nt.NTEventLogAppenderTest" />
+    </junit>
+  </target>
+
+  <!--  output/nteventlog/planted stands in for the Windows library search path  -->
+  <target name="NTEventLogAppenderDllPreloading" depends="build" if="is-linux">
+    <delete dir="./output/nteventlog"/>
+    <mkdir dir="./output/nteventlog/planted"/>
+    <mkdir dir="./output/nteventlog/trusted"/>
+    <junit printsummary="yes" fork="yes"
+        haltonfailure="${haltonfailure}" dir="${basedir}">
+      <classpath refid="tests.classpath"/>
+      <formatter type="plain" usefile="false"/>
+      <sysproperty key="java.library.path" file="./output/nteventlog/planted"/>
+      <test name="org.apache.log4j.nt.NTEventLogAppenderDllPreloadingTest" />
     </junit>
   </target>
 

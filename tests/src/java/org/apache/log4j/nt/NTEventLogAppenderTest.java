@@ -16,40 +16,95 @@
  */
 
 package org.apache.log4j.nt;
+
+import java.io.File;
+import java.io.IOException;
+
 import junit.framework.TestCase;
-import org.apache.log4j.Logger;
 import org.apache.log4j.LogManager;
-import org.apache.log4j.Level;
-import org.apache.log4j.BasicConfigurator;
 
 
 /**
- *
  * NTEventLogAppender tests.
  *
  * @author Curt Arnold
  */
 public class NTEventLogAppenderTest extends TestCase {
 
-  /**
-   *   Clean up configuration after each test.
-   */
+  private String originalDllPath;
+
+  public void setUp() {
+    originalDllPath = System.getProperty(NTEventLogAppender.DLL_PATH_PROPERTY);
+    System.getProperties().remove(NTEventLogAppender.DLL_PATH_PROPERTY);
+  }
+
   public void tearDown() {
+    if (originalDllPath != null) {
+      System.setProperty(NTEventLogAppender.DLL_PATH_PROPERTY, originalDllPath);
+    } else {
+      System.getProperties().remove(NTEventLogAppender.DLL_PATH_PROPERTY);
+    }
     LogManager.shutdown();
   }
 
   /**
-   *   Simple test of NTEventLogAppender.
+   * When the system property is not set, resolveConfiguredDllPath should return null.
    */
-  public void testSimple() {
-    BasicConfigurator.configure(new NTEventLogAppender());
-    Logger logger = Logger.getLogger("org.apache.log4j.nt.NTEventLogAppenderTest");
-    int i  = 0;
-    logger.debug( "Message " + i++);
-    logger.info( "Message " + i++);
-    logger.warn( "Message " + i++);
-    logger.error( "Message " + i++);
-    logger.log(Level.FATAL, "Message " + i++);
-    logger.debug("Message " + i++,  new Exception("Just testing."));
+  public void testResolveConfiguredDllPath_notSet() {
+    System.getProperties().remove(NTEventLogAppender.DLL_PATH_PROPERTY);
+    assertNull(NTEventLogAppender.resolveConfiguredDllPath());
+  }
+
+  /**
+   * When the system property is an empty string, resolveConfiguredDllPath should return null.
+   */
+  public void testResolveConfiguredDllPath_emptyString() {
+    System.setProperty(NTEventLogAppender.DLL_PATH_PROPERTY, "");
+    assertNull(NTEventLogAppender.resolveConfiguredDllPath());
+  }
+
+  /**
+   * When the system property is whitespace only, resolveConfiguredDllPath should return null.
+   */
+  public void testResolveConfiguredDllPath_whitespaceOnly() {
+    System.setProperty(NTEventLogAppender.DLL_PATH_PROPERTY, "   ");
+    assertNull(NTEventLogAppender.resolveConfiguredDllPath());
+  }
+
+  /**
+   * When the system property is a relative path, resolveConfiguredDllPath should return null.
+   */
+  public void testResolveConfiguredDllPath_relativePath() {
+    System.setProperty(NTEventLogAppender.DLL_PATH_PROPERTY, "relative/path/NTEventLogAppender.dll");
+    assertNull(NTEventLogAppender.resolveConfiguredDllPath());
+  }
+
+  /**
+   * When the system property is an absolute path to a file that does not exist,
+   * resolveConfiguredDllPath should return null.
+   */
+  public void testResolveConfiguredDllPath_absoluteButMissing() {
+    String missingPath = new File(System.getProperty("java.io.tmpdir"), "no_such_NTEventLogAppender.dll")
+        .getAbsolutePath();
+    System.setProperty(NTEventLogAppender.DLL_PATH_PROPERTY, missingPath);
+    assertNull(NTEventLogAppender.resolveConfiguredDllPath());
+  }
+
+  /**
+   * When the system property is an absolute path to an existing file,
+   * resolveConfiguredDllPath should return that absolute path.
+   */
+  public void testResolveConfiguredDllPath_absoluteAndExists() throws IOException {
+    File tempFile = File.createTempFile("NTEventLogAppender", ".dll");
+    tempFile.deleteOnExit();
+    try {
+      String absolutePath = tempFile.getAbsolutePath();
+      System.setProperty(NTEventLogAppender.DLL_PATH_PROPERTY, absolutePath);
+      String result = NTEventLogAppender.resolveConfiguredDllPath();
+      assertNotNull(result);
+      assertEquals(absolutePath, result);
+    } finally {
+      tempFile.delete();
+    }
   }
 }
