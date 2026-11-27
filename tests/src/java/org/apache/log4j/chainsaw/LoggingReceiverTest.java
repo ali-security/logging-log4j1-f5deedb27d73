@@ -27,12 +27,14 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.util.Hashtable;
+import java.util.Vector;
 
 import junit.framework.TestCase;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
+import org.apache.log4j.net.HardenedObjectInputStreamTest;
 import org.apache.log4j.spi.LocationInfo;
 import org.apache.log4j.spi.LoggingEvent;
 import org.apache.log4j.spi.ThrowableInformation;
@@ -42,7 +44,8 @@ import org.apache.log4j.xml.DOMConfigurator;
  * Tests for {@link LoggingReceiver}, the socket receiver of Chainsaw.
  *
  * The receiver must only deserialize logging events and must refuse any
- * other class sent by a remote client (CVE-2022-23307).
+ * other class sent by a remote client (CVE-2022-23307), and must refuse
+ * events carrying deeply nested collections (CVE-2023-26464).
  */
 public class LoggingReceiverTest extends TestCase {
 
@@ -119,6 +122,66 @@ public class LoggingReceiverTest extends TestCase {
                     Gadget.deserialized);
         assertTrue("receiver did not drop the connection", dropped);
         assertNull(findEvent("carrier event"));
+    }
+
+    /**
+     * CVE-2023-26464: a logging event whose MDC holds deeply nested
+     * HashSets must be refused instead of tying up the receiver computing
+     * hash codes.
+     */
+    public void testRejectsDeeplyNestedCollectionsInLoggingEvent()
+        throws Exception {
+        int port = startReceiver(0);
+
+        Hashtable properties = new Hashtable();
+        properties.put("payload",
+            HardenedObjectInputStreamTest.createNestedHashSetPayload(
+                HardenedObjectInputStreamTest.ATTACK_DEPTH));
+        LoggingEvent event = new LoggingEvent(Logger.class.getName(),
+            Logger.getLogger(LoggingReceiverTest.class),
+            System.currentTimeMillis(), Level.INFO, "nested collections",
+            "main", null, null, null, properties);
+
+        boolean dropped = sendAndAwaitClose(port, event);
+
+        assertTrue("receiver did not drop the connection", dropped);
+        assertNull(findEvent("nested collections"));
+    }
+
+    /**
+     * The collection limit applies per event: many logging events with
+     * MDC properties sent over a single connection are all received.
+     */
+    public void testAcceptsManyEventsOnOneConnection() throws Exception {
+        int port = startReceiver(0);
+        int events = 20;
+
+        Socket socket = new Socket("localhost", port);
+        try {
+            ObjectOutputStream oos =
+                new ObjectOutputStream(socket.getOutputStream());
+            for (int i = 0; i < events; i++) {
+                Vector roles = new Vector();
+                roles.addElement("user");
+                roles.addElement("admin");
+                Hashtable properties = new Hashtable();
+                properties.put("roles", roles);
+                oos.writeObject(new LoggingEvent(Logger.class.getName(),
+                    Logger.getLogger(LoggingReceiverTest.class),
+                    System.currentTimeMillis(), Level.INFO, "event " + i,
+                    "main", null, null, null, properties));
+                // like SocketAppender, reset the stream after each event
+                oos.reset();
+            }
+            oos.flush();
+
+            for (int i = 0; i < events; i++) {
+                assertNotNull("event " + i + " was not received",
+                              awaitEvent("event " + i));
+            }
+        } finally {
+            socket.close();
+        }
     }
 
     /**
