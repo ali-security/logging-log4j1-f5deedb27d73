@@ -174,7 +174,8 @@
                                      OptionConverter, BoundedFIFO,
                                      CyclicBuffer, OR,
                                      LevelMatchFilter, PatternParser, 
-                                     ErrorHandler,Rewrite, JNDIUtil, JMSAppender"/>
+                                     ErrorHandler,Rewrite, JNDIUtil, JMSAppender,
+                                     LoggingReceiver"/>
 
   <!-- ================================================================= -->
   <!-- Longer unit tests                                                 -->
@@ -364,6 +365,15 @@
       <classpath refid="tests.classpath"/>
       <formatter type="plain" usefile="false" />
       <test name="org.apache.log4j.net.JMSAppenderTest" />
+    </junit>
+  </target>
+
+  <target name="LoggingReceiver" depends="build">
+    <junit printsummary="yes" fork="yes"
+        haltonfailure="${haltonfailure}" dir="${basedir}">
+      <classpath refid="tests.classpath"/>
+      <formatter type="plain" usefile="false" />
+      <test name="org.apache.log4j.chainsaw.LoggingReceiverTest" />
     </junit>
   </target>
 
